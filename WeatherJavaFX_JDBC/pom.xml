@@ -1,0 +1,395 @@
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.example</groupId>
+    <artifactId>weather-javafx-mysql</artifactId>
+    <version>1.0.0</version>
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <java.version>17</java.version>
+        <javafx.version>20.0.2</javafx.version>
+    </properties>
+
+    <dependencies>
+        <!-- JavaFX modules -->
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-controls</artifactId>
+            <version>${javafx.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-fxml</artifactId>
+            <version>${javafx.version}</version>
+        </dependency>
+
+        <!-- MySQL Connector/J -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <version>8.1.0</version>
+        </dependency>
+
+        <!-- JSON (optional, if parsing API responses) -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.15.2</version>
+        </dependency>
+
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.openjfx</groupId>
+                <artifactId>javafx-maven-plugin</artifactId>
+                <version>0.0.8</version>
+                <configuration>
+                    <mainClass>application.Main</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
+```
+
+---
+
+## sql/weatherdb.sql
+
+```sql
+CREATE DATABASE IF NOT EXISTS weatherdb;
+USE weatherdb;
+
+CREATE TABLE IF NOT EXISTS weather_history (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    city VARCHAR(100) NOT NULL,
+    temperature VARCHAR(50),
+    description VARCHAR(255),
+    searched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
+## src/main/java/application/DatabaseConnection.java
+
+```java
+package application;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+
+public class DatabaseConnection {
+    // Update these with your DB credentials
+    private static final String URL = "jdbc:mysql://localhost:3306/weatherdb?useSSL=false&serverTimezone=UTC";
+    private static final String USER = "root";
+    private static final String PASSWORD = "your_password";
+
+    public static Connection getConnection() throws SQLException {
+        // Driver loading is automatic for modern JDBC, but keep for clarity
+        try {
+            Class.forName("com.mysql.cj.jdbc.Driver");
+        } catch (ClassNotFoundException e) {
+            System.err.println("MySQL driver not found: " + e.getMessage());
+        }
+        return DriverManager.getConnection(URL, USER, PASSWORD);
+    }
+}
+```
+
+---
+
+## src/main/java/application/WeatherData.java
+
+```java
+package application;
+
+public class WeatherData {
+    private int id; // optional, from DB
+    private String city;
+    private String temperature;
+    private String description;
+
+    public WeatherData(String city, String temperature, String description) {
+        this.city = city;
+        this.temperature = temperature;
+        this.description = description;
+    }
+
+    public WeatherData(int id, String city, String temperature, String description) {
+        this.id = id;
+        this.city = city;
+        this.temperature = temperature;
+        this.description = description;
+    }
+
+    public int getId() { return id; }
+    public String getCity() { return city; }
+    public String getTemperature() { return temperature; }
+    public String getDescription() { return description; }
+
+    public void setId(int id) { this.id = id; }
+}
+```
+
+---
+
+## src/main/java/application/WeatherHistoryDAO.java
+
+```java
+package application;
+
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+
+public class WeatherHistoryDAO {
+
+    public static void saveWeather(WeatherData weather) {
+        String sql = "INSERT INTO weather_history (city, temperature, description) VALUES (?, ?, ?)";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setString(1, weather.getCity());
+            ps.setString(2, weather.getTemperature());
+            ps.setString(3, weather.getDescription());
+            ps.executeUpdate();
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static List<WeatherData> getAllHistory() {
+        List<WeatherData> list = new ArrayList<>();
+        String sql = "SELECT id, city, temperature, description, searched_at FROM weather_history ORDER BY searched_at DESC";
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+
+            while (rs.next()) {
+                WeatherData wd = new WeatherData(
+                        rs.getInt("id"),
+                        rs.getString("city"),
+                        rs.getString("temperature"),
+                        rs.getString("description")
+                );
+                list.add(wd);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return list;
+    }
+}
+```
+
+---
+
+## src/main/java/application/Main.java
+
+```java
+package application;
+
+import javafx.application.Application;
+import javafx.fxml.FXMLLoader;
+import javafx.scene.Parent;
+import javafx.scene.Scene;
+import javafx.stage.Stage;
+
+public class Main extends Application {
+    @Override
+    public void start(Stage primaryStage) {
+        try {
+            Parent root = FXMLLoader.load(getClass().getResource("/application/weather.fxml"));
+            primaryStage.setTitle("Weather JavaFX - MySQL History");
+            primaryStage.setScene(new Scene(root));
+            primaryStage.show();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void main(String[] args) {
+        launch(args);
+    }
+}
+```
+
+---
+
+## src/main/java/application/WeatherController.java
+
+```java
+package application;
+
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.fxml.FXML;
+import javafx.scene.control.*;
+
+import java.util.List;
+
+public class WeatherController {
+
+    @FXML
+    private TextField cityField;
+    @FXML
+    private Button fetchButton;
+    @FXML
+    private Label tempLabel;
+    @FXML
+    private Label descLabel;
+    @FXML
+    private TableView<WeatherData> historyTable;
+    @FXML
+    private TableColumn<WeatherData, String> cityCol;
+    @FXML
+    private TableColumn<WeatherData, String> tempCol;
+    @FXML
+    private TableColumn<WeatherData, String> descCol;
+
+    private final ObservableList<WeatherData> historyObservable = FXCollections.observableArrayList();
+
+    @FXML
+    public void initialize() {
+        // configure table columns (using simple property extraction because WeatherData has getters)
+        cityCol.setCellValueFactory(cellData -> new javafx.beans.property.SimpleStringProperty(cellData.getValue().getCity()));
+        tempCol.setCellValueFactory(cellData -> new javafx.beans.property.SimpleStringProperty(cellData.getValue().getTemperature()));
+        descCol.setCellValueFactory(cellData -> new javafx.beans.property.SimpleStringProperty(cellData.getValue().getDescription()));
+
+        historyTable.setItems(historyObservable);
+        loadHistoryFromDB();
+    }
+
+    private void loadHistoryFromDB() {
+        List<WeatherData> list = WeatherHistoryDAO.getAllHistory();
+        historyObservable.setAll(list);
+    }
+
+    @FXML
+    private void fetchWeather() {
+        String city = cityField.getText().trim();
+        if (city.isEmpty()) {
+            Alert alert = new Alert(Alert.AlertType.WARNING, "Please enter a city name.", ButtonType.OK);
+            alert.showAndWait();
+            return;
+        }
+
+        // TODO: Replace this stub with real API call to fetch weather
+        // For demonstration we create a fake result
+        String temperature = "25°C"; // replace with API response
+        String description = "Clear sky"; // replace with API response
+
+        tempLabel.setText(temperature);
+        descLabel.setText(description);
+
+        WeatherData weather = new WeatherData(city, temperature, description);
+        WeatherHistoryDAO.saveWeather(weather);
+
+        // refresh table
+        loadHistoryFromDB();
+    }
+}
+```
+
+---
+
+## src/main/resources/application/weather.fxml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<AnchorPane xmlns:fx="http://javafx.com/fxml" fx:controller="application.WeatherController">
+    <children>
+        <VBox spacing="10.0" AnchorPane.topAnchor="10" AnchorPane.leftAnchor="10" AnchorPane.rightAnchor="10">
+            <HBox spacing="10">
+                <Label text="City:" />
+                <TextField fx:id="cityField" promptText="Enter city name" />
+                <Button fx:id="fetchButton" text="Fetch" onAction="#fetchWeather" />
+            </HBox>
+
+            <HBox spacing="20">
+                <VBox>
+                    <Label text="Temperature:" />
+                    <Label fx:id="tempLabel" text="-" />
+                </VBox>
+                <VBox>
+                    <Label text="Description:" />
+                    <Label fx:id="descLabel" text="-" />
+                </VBox>
+            </HBox>
+
+            <Label text="Search History" />
+            <TableView fx:id="historyTable" prefHeight="300">
+                <columns>
+                    <TableColumn fx:id="cityCol" text="City" prefWidth="150" />
+                    <TableColumn fx:id="tempCol" text="Temperature" prefWidth="100" />
+                    <TableColumn fx:id="descCol" text="Description" prefWidth="250" />
+                </columns>
+            </TableView>
+        </VBox>
+    </children>
+</AnchorPane>
+```
+
+---
+
+## README.md
+
+````md
+# Weather-JavaFX-MySQL
+
+A JavaFX app that fetches weather information and stores search history in a MySQL database.
+
+## Requirements
+- Java 17+
+- Maven
+- MySQL Server
+
+## Setup
+1. Clone the project.
+2. Create the database and table: `mysql -u root -p < sql/weatherdb.sql` (update user/password as needed).
+3. Edit `DatabaseConnection.java` and set your DB `USER` and `PASSWORD`.
+4. Build and run with Maven:
+   ```bash
+   mvn clean javafx:run
+````
+
+## Notes
+
+* The `fetchWeather()` method currently uses dummy data. Replace the TODO in `WeatherController.fetchWeather()` with a real API call (OpenWeatherMap, WeatherAPI, etc.) and parse the response.
+* If you want to show timestamps in the table, extend `WeatherData` and add a column in the FXML.
+
+```
+
+---
+
+If you'd like, I can now:
+- Add real API integration code (OpenWeatherMap) with JSON parsing and show sample API key usage.
+- Build a runnable JAR configuration and instructions.
+- Convert project to Gradle.
+
+Tell me which of the above you'd like next.
+
+```

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+
+<AnchorPane xmlns:fx="http://javafx.com/fxml" fx:controller="application.WeatherController">
+<children>
+<VBox spacing="10.0" AnchorPane.topAnchor="10" AnchorPane.leftAnchor="10" AnchorPane.rightAnchor="10">
+<HBox spacing="10">
+<Label text="City:" />
+<TextField fx:id="cityField" promptText="Enter city name" />
+<Button fx:id="fetchButton" text="Fetch" onAction="#fetchWeather" />
+</HBox>
+
+
+<HBox spacing="20">
+<VBox>
+<Label text="Temperature:" />
+<Label fx:id="tempLabel" text="-" />
+</V
